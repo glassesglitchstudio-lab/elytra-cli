@@ -2,6 +2,8 @@
 //!
 //! v0.1: iskelet. Gerçek API çağrısı (Nous Inference) sonraki adımda.
 
+pub mod providers;
+
 use anyhow::Result;
 
 /// Tek seferlik mesaj gönder (CLI modu: `elytra "selam"`)

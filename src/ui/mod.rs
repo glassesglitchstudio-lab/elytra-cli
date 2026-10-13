@@ -64,9 +64,10 @@ async fn boot_and_loop(mut terminal: DefaultTerminal) -> Result<()> {
     // ── Aşama 2: Ana arayüz ──
     let mut input = String::new();
     let mut messages: Vec<(bool, String)> = Vec::new(); // (kullanıcı mı?, metin)
+    let mut selection = crate::api::providers::Selection::default();
 
     loop {
-        terminal.draw(|frame| draw_main(frame, &messages, &input))?;
+        terminal.draw(|frame| draw_main(frame, &messages, &input, &selection))?;
 
         // Kullanıcı girdisini bekle (100ms timeout — animasyonlar için)
         if event::poll(Duration::from_millis(100))? {
@@ -76,6 +77,10 @@ async fn boot_and_loop(mut terminal: DefaultTerminal) -> Result<()> {
                     KeyCode::Char('c') if key.modifiers.contains(event::KeyModifiers::CONTROL) => {
                         break
                     }
+                    // Tab: aynı sağlayıcı içinde model değiştir
+                    KeyCode::Tab => selection.next_model(),
+                    // BackTab (Shift+Tab): sağlayıcı değiştir
+                    KeyCode::BackTab => selection.next_provider(),
                     KeyCode::Char(c) => input.push(c),
                     KeyCode::Backspace => {
                         input.pop();
@@ -216,8 +221,13 @@ fn draw_wing_half(frame: &mut Frame, x: u16, y: u16, w: u16, left: bool) {
     frame.render_widget(Paragraph::new(lines), rect);
 }
 
-/// Ana arayüz: gradient başlık + sohbet alanı + giriş kutusu
-fn draw_main(frame: &mut Frame, messages: &[(bool, String)], input: &str) {
+/// Ana arayüz: gradient başlık + maskot paneli + sohbet + sağlayıcı barları + giriş
+fn draw_main(
+    frame: &mut Frame,
+    messages: &[(bool, String)],
+    input: &str,
+    selection: &crate::api::providers::Selection,
+) {
     let area = frame.area();
 
     // Arka plan
@@ -226,18 +236,20 @@ fn draw_main(frame: &mut Frame, messages: &[(bool, String)], input: &str) {
         area,
     );
 
-    // Dikey yerleşim: başlık / (sohbet + masajot paneli) / giriş
+    // Dikey yerleşim: başlık / (maskot|sohbet) / sağlayıcı / model / giriş
     let chunks = Layout::vertical([
-        Constraint::Length(3), // başlık
-        Constraint::Min(8),    // sohbet + panel
-        Constraint::Length(3), // giriş
+        Constraint::Length(2), // gradient bar + başlık satırı
+        Constraint::Min(8),    // maskot paneli + sohbet
+        Constraint::Length(1), // sağlayıcı şeridi
+        Constraint::Length(1), // model şeridi
+        Constraint::Length(3), // giriş kutusu
     ])
     .split(area);
 
-    // Orta bölge: sola sohbet, sağa maskot paneli (terminal genişse)
-    let show_sidebar = area.width >= 60;
-    let main_chunks = if show_sidebar {
-        Layout::horizontal([Constraint::Min(30), Constraint::Length(26)]).split(chunks[1])
+    // Orta bölge: sola maskot paneli, sağa sohbet (terminal genişse)
+    let wide = area.width >= 70;
+    let main_chunks = if wide {
+        Layout::horizontal([Constraint::Length(19), Constraint::Min(25)]).split(chunks[1])
     } else {
         Layout::horizontal([Constraint::Percentage(100)]).split(chunks[1])
     };
@@ -253,14 +265,80 @@ fn draw_main(frame: &mut Frame, messages: &[(bool, String)], input: &str) {
         let color = theme::IRIDESCENT[i % theme::IRIDESCENT.len()];
         bar_spans.push(Span::styled("█", Style::default().fg(color)));
     }
-    let mut header_lines: Vec<Line> = vec![Line::from(bar_spans)];
-    header_lines.push(Line::from(vec![
-        Span::styled(" ◆ elytra ", theme::title()),
-        Span::styled("| model: ", theme::muted()),
-        Span::styled("bağlanmadı", theme::secondary()),
-        Span::styled(" | çıkmak için: Esc", theme::muted()),
-    ]));
+    let header_lines = vec![
+        Line::from(bar_spans),
+        Line::from(vec![
+            Span::styled(" ◆ ELYTRA ", theme::title()),
+            Span::styled("| kanatlı kedi ", theme::secondary()),
+            Span::styled("| v0.1", theme::muted()),
+            Span::styled(
+                format!(" | {} ", selection.full_id()),
+                theme::accent(),
+            ),
+            Span::styled("| çıkış: Esc", theme::muted()),
+        ]),
+    ];
     frame.render_widget(Paragraph::new(header_lines), chunks[0]);
+
+    // ── Maskot paneli (sol kenar) ──
+    if wide {
+        let colors = mascot::MascotColors::default();
+        let mut panel: Vec<Line> = Vec::new();
+        let avail = main_chunks[0].height; // panelin sığdığı satır sayısı
+
+        // Üst kenar
+        panel.push(Line::from(Span::styled(
+            format!("┌{}┐", "─".repeat(17)),
+            theme::muted(),
+        )));
+
+        // Maskot (8 satır) — yer varsa
+        if avail >= 12 {
+            for l in mascot::mascot_lines(&colors) {
+                let mut spans = vec![Span::styled("│", theme::muted()), Span::raw(" ")];
+                spans.extend(l.spans);
+                panel.push(Line::from(spans));
+            }
+            // Durum satırı
+            let status = mascot::mascot_status(false);
+            let mut status_spans = vec![Span::styled("│", theme::muted()), Span::raw(" ")];
+            status_spans.extend(status.spans);
+            panel.push(Line::from(status_spans));
+            // İpuçları — sadece yer kalıyorsa
+            if avail >= 14 {
+                panel.push(Line::from(vec![
+                    Span::styled("│", theme::muted()),
+                    Span::styled(" Tab: model değiştir", theme::muted()),
+                ]));
+            }
+            if avail >= 15 {
+                panel.push(Line::from(vec![
+                    Span::styled("│", theme::muted()),
+                    Span::styled(" S-Tab: sağlayıcı", theme::muted()),
+                ]));
+            }
+        } else {
+            // Küçük terminal: sadece başlık
+            panel.push(Line::from(vec![
+                Span::styled("│", theme::muted()),
+                Span::styled("  ELYTRA", theme::secondary()),
+            ]));
+        }
+
+        // Alt kenar — kalan satırları doldur (taşmayı önler)
+        while (panel.len() as u16) < avail.saturating_sub(1) {
+            panel.push(Line::from(vec![
+                Span::styled("│", theme::muted()),
+                Span::raw("                  "),
+            ]));
+        }
+        panel.push(Line::from(Span::styled(
+            format!("└{}┘", "─".repeat(17)),
+            theme::muted(),
+        )));
+
+        frame.render_widget(Paragraph::new(panel), main_chunks[0]);
+    }
 
     // ── Sohbet alanı ──
     let mut lines: Vec<Line> = Vec::new();
@@ -282,59 +360,63 @@ fn draw_main(frame: &mut Frame, messages: &[(bool, String)], input: &str) {
         }
         lines.push(Line::from(""));
     }
+    let chat_area = if wide { main_chunks[1] } else { chunks[1] };
     frame.render_widget(
         Paragraph::new(lines).wrap(Wrap { trim: false }),
-        main_chunks[0],
+        chat_area,
     );
 
-    // ── Masajot paneli (sağ kenar) ──
-    if show_sidebar {
-        let colors = mascot::MascotColors::default();
-        let mut panel_lines: Vec<Line> = Vec::new();
-
-        // Panel başlığı — ince ayırıcı
-        panel_lines.push(Line::from(Span::styled(
-            "─".repeat(24),
-            theme::muted(),
-        )));
-        panel_lines.push(Line::from(""));
-
-        // Maskot
-        panel_lines.extend(mascot::mascot_lines(&colors));
-        panel_lines.push(Line::from(""));
-
-        // Bilgi satırları
-        panel_lines.push(mascot::mascot_status(false));
-        panel_lines.push(Line::from(Span::styled(
-            "sürüm: 0.1.0",
-            theme::muted(),
-        )));
-        panel_lines.push(Line::from(""));
-        panel_lines.push(Line::from(Span::styled(
-            "ipuçları:",
-            theme::secondary(),
-        )));
-        panel_lines.push(Line::from(Span::styled(
-            "  Esc    çıkış",
-            theme::muted(),
-        )));
-        panel_lines.push(Line::from(Span::styled(
-            "  Enter  gönder",
-            theme::muted(),
-        )));
-        panel_lines.push(Line::from(Span::styled(
-            "  model: API sonraki",
-            theme::muted(),
-        )));
-        panel_lines.push(Line::from(Span::styled(
-            "         sürümde",
-            theme::muted(),
-        )));
-
-        frame.render_widget(Paragraph::new(panel_lines), main_chunks[1]);
+    // ── Sağlayıcı şeridi — tüm sağlayıcılar, seçili olan vurgulu ──
+    // Dar terminalde sığmayan sağlayıcılar gizlenir (sığdığı kadar).
+    let bar_budget = area.width.saturating_sub(12) as usize; // "sağlayıcı" etiketi payı
+    let mut prov_spans: Vec<Span> = vec![Span::styled(" sağlayıcı ", theme::muted())];
+    let mut used = 0usize;
+    for (i, p) in crate::api::providers::PROVIDERS.iter().enumerate() {
+        let active = i == selection.provider_index;
+        let label = format!("[{}] ", p.id);
+        if used + label.len() > bar_budget {
+            prov_spans.push(Span::styled("...", theme::muted()));
+            break;
+        }
+        used += label.len();
+        if active {
+            prov_spans.push(Span::styled(
+                label,
+                Style::default()
+                    .fg(theme::Theme::PRIMARY)
+                    .add_modifier(ratatui::style::Modifier::BOLD),
+            ));
+        } else {
+            prov_spans.push(Span::styled(label, theme::muted()));
+        }
     }
+    frame.render_widget(Paragraph::new(Line::from(prov_spans)), chunks[2]);
 
-    // ── Giriş kutusu — kendi glifimiz ──
+    // ── Model şeridi — seçili sağlayıcının modelleri ──
+    let provider = selection.provider();
+    let mut model_spans: Vec<Span> = vec![Span::styled(
+        format!(" {} ", provider.name),
+        theme::secondary(),
+    )];
+    for (i, m) in provider.models.iter().enumerate() {
+        let active = i == selection.model_index;
+        let star = if m.free { "*" } else { " " };
+        let label = format!(" {}{} ", m.id, star);
+        if active {
+            model_spans.push(Span::styled(
+                label,
+                Style::default()
+                    .fg(theme::Theme::ACCENT)
+                    .add_modifier(ratatui::style::Modifier::BOLD),
+            ));
+        } else {
+            model_spans.push(Span::styled(label, theme::muted()));
+        }
+    }
+    model_spans.push(Span::styled(" (* = ücretsiz)", theme::muted()));
+    frame.render_widget(Paragraph::new(Line::from(model_spans)), chunks[3]);
+
+    // ── Giriş kutusu ──
     let input_lines = vec![
         Line::from(Span::styled(
             "─".repeat(area.width.saturating_sub(2) as usize),

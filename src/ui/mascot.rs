@@ -42,47 +42,57 @@ pub fn mascot_lines(colors: &MascotColors) -> Vec<Line<'static>> {
         .add_modifier(Modifier::BOLD);
     let nose = Style::default().fg(colors.nose);
 
-    // Maskot: ortada kedi, yanlarda iridesan kanat parçacıkları
+    // Her satır: kanat (*) mor, kedi beyaz, göz yeşil, burun pembe
     vec![
-        // Kanat uçları (üst)
+        // 0: üst kanat parçacıkları
         Line::from(vec![
-            Span::styled("  .  *", wing),
-            Span::raw("        "),
-            Span::styled(" *  .", wing),
+            Span::styled("    .", wing),
+            Span::raw("     "),
+            Span::styled(".", wing),
+            Span::raw("    "),
         ]),
+        // 1: kulaklar + üst kanatlar
         Line::from(vec![
-            Span::styled(" *    ", wing),
-            Span::styled("/\\___/\\", fur),
-            Span::styled("    *", wing),
+            Span::raw(" "),
+            Span::styled("*", wing),
+            Span::raw("   "),
+            Span::styled("/\\_/\\", fur),
+            Span::raw("   "),
+            Span::styled("*", wing),
+            Span::raw(" "),
         ]),
-        // Kedi yüzü — gözler parlak
+        // 2: gözler
         Line::from(vec![
-            Span::styled("*  ", wing),
-            Span::styled("( ", fur),
+            Span::styled("*", wing),
+            Span::raw("   ( "),
             Span::styled("o", eye),
-            Span::styled(" . ", fur),
+            Span::raw("."),
             Span::styled("o", eye),
-            Span::styled(" )", fur),
-            Span::styled("  *", wing),
+            Span::raw(" )   "),
+            Span::styled("*", wing),
         ]),
+        // 3: burun/ağız
         Line::from(vec![
-            Span::styled("   ", wing),
-            Span::styled(" >   ", fur),
+            Span::raw("     > "),
             Span::styled("^", nose),
-            Span::styled("  <", fur),
+            Span::raw(" <     "),
         ]),
+        // 4: gövde üst
+        Line::from(vec![Span::raw("    /|   |\\    ")]),
+        // 5: gövde alt + kanat uçları
         Line::from(vec![
-            Span::styled("  ", wing),
-            Span::styled(" /|   |\\", fur),
+            Span::styled("*", wing),
+            Span::raw("  (_|   |_)  "),
+            Span::styled("*", wing),
         ]),
+        // 6: alt kanat gölgesi
+        Line::from(vec![Span::raw("     '     '    ")]),
+        // 7: taban kanat ucu
         Line::from(vec![
-            Span::styled("* ", wing),
-            Span::styled("(_|   |_)", fur),
-            Span::styled(" *", wing),
-        ]),
-        // Alt kanat gölgesi
-        Line::from(vec![
-            Span::styled("  '     '", wing),
+            Span::raw(" "),
+            Span::styled("*", wing),
+            Span::raw("           "),
+            Span::styled("*", wing),
         ]),
     ]
 }
