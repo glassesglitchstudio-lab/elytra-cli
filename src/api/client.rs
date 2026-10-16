@@ -1,9 +1,8 @@
 //! Elytra Evrensel Model İstemcisi
 //!
-//! OpenAI, OpenRouter, Groq, DeepSeek, Google Gemini, Cerebras, SambaNova,
-//! Mistral, Anthropic, Together, xAI, Perplexity, Cohere ve yerel Ollama/vLLM için
+//! OpenRouter, Nous, Groq, Google, Cerebras, DeepSeek, Mistral, Z.ai,
+//! Moonshot, xAI, OpenAI, Anthropic, Together, Fireworks, NVIDIA için
 //! yüksek performanslı, asenkron HTTP istemcisi.
-//! Ayrıca sıfır-konfigürasyon için dahili akıllı "Elytra Çevrimdışı" motorunu içerir.
 
 use anyhow::{anyhow, Result};
 use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_TYPE};
@@ -163,22 +162,9 @@ impl ApiClient {
             None => (provider_id.to_string(), provider_id.to_string()),
         };
 
-        // 1. Çevrimdışı motor testi
-        if p_id == "demo" || p_id == "offline" {
-            let start = Instant::now();
-            let _ = generate_demo_response("ping");
-            return ProviderTestResult {
-                provider_id: p_id,
-                provider_name: name,
-                success: true,
-                latency_ms: start.elapsed().as_millis().max(1),
-                message: "OK (Dahili Yerel Motor)".into(),
-            };
-        }
-
-        // 2. API anahtarı kontrolü
+        // 1. API anahtarı kontrolü (ücretsiz katmanı olan sağlayıcılar muaf)
         let key = self.config.get_key_for(&p_id);
-        if p_id != "local" && p_id != "nous" && key.is_none() {
+        if key.is_none() && !prov.map(|p| p.is_free_tier).unwrap_or(false) {
             return ProviderTestResult {
                 provider_id: p_id.clone(),
                 provider_name: name,
@@ -236,13 +222,7 @@ impl ApiClient {
         messages: &[ChatMessage],
         tools: Option<&[ToolDefinition]>,
     ) -> Result<CompletionResponse> {
-        // 1. Çevrimdışı dahili motor (Gerçek Araç Çağrısı Destekli)
-        if provider_id == "demo" || provider_id == "offline" {
-            let resp = generate_demo_completion(messages);
-            return Ok(resp);
-        }
-
-        // 2. Anthropic Resmi Messages API (Araç Destekli)
+        // 1. Anthropic Resmi Messages API (Araç Destekli)
         if provider_id == "anthropic" {
             return self.complete_anthropic(model_id, messages, tools).await;
         }
@@ -498,25 +478,7 @@ impl ApiClient {
         messages: &[ChatMessage],
         sender: tokio::sync::mpsc::Sender<StreamEvent>,
     ) -> Result<()> {
-        // ── 1. Elytra Dahili Çevrimdışı Motoru ──
-        if provider_id == "demo" || provider_id == "offline" {
-            let last_user = messages
-                .iter()
-                .rev()
-                .find(|m| m.role == "user")
-                .and_then(|m| m.content.as_deref())
-                .unwrap_or("merhaba");
-
-            let full_text = generate_demo_response(last_user);
-            for chunk in full_text.split_inclusive(' ') {
-                let _ = sender.send(StreamEvent::ContentDelta(chunk.to_string())).await;
-                tokio::time::sleep(Duration::from_millis(16)).await;
-            }
-            let _ = sender.send(StreamEvent::Done).await;
-            return Ok(());
-        }
-
-        // ── 2. Anthropic Messages Akışı ──
+        // ── 1. Anthropic Messages Akışı ──
         if provider_id == "anthropic" {
             return self.stream_anthropic(model_id, messages, sender).await;
         }
@@ -564,11 +526,7 @@ impl ApiClient {
         let resp = match resp_res {
             Ok(r) => r,
             Err(e) => {
-                let err_msg = if provider_id == "local" {
-                    format!("Ollama yerel sunucusuna baglanilamadi ({}). Ollama'nin calistigindan emin olun.", url)
-                } else {
-                    format!("Ag baglanti hatasi: {e}")
-                };
+                let err_msg = format!("Ag baglanti hatasi: {e}");
                 let _ = sender.send(StreamEvent::Error(err_msg.clone())).await;
                 return Err(anyhow!(err_msg));
             }
@@ -755,10 +713,6 @@ impl ApiClient {
 
     /// Sağlayıcıya göre URL ve API anahtarını çöz
     fn resolve_endpoint(&self, provider_id: &str) -> Result<(String, Option<String>)> {
-        if provider_id == "demo" || provider_id == "offline" {
-            return Ok(("local://elytra-engine".into(), None));
-        }
-
         // Özel endpoint tanımlıysa
         if let Some(ref base) = self.config.custom_base_url {
             let url = if base.ends_with("/chat/completions") {
@@ -781,16 +735,6 @@ impl ApiClient {
         };
 
         let key = self.config.get_key_for(provider.id);
-
-        // Yerel sağlayıcı (Ollama) için anahtar gerekmez
-        if provider.id == "local" {
-            return Ok((url, None));
-        }
-
-        // Nous Research için ücretsiz mock/demo anahtar yoksa kontrol et
-        if provider.id == "nous" && key.is_none() {
-            return Ok((url, Some("nous-public-preview".into())));
-        }
 
         Ok((url, key))
     }
@@ -830,134 +774,6 @@ pub fn format_api_error(status: u16, raw: &str) -> String {
         format!("HTTP kodu: {}", status)
     } else {
         raw.trim().to_string()
-    }
-}
-
-/// Çevrimdışı Elytra Motoru — ReAct Araç Çağrısı ve Yanıt Üretimi
-pub fn generate_demo_completion(messages: &[ChatMessage]) -> CompletionResponse {
-    let last_msg = match messages.last() {
-        Some(m) => m,
-        None => return CompletionResponse { content: "Merhaba!".into(), tool_calls: vec![] },
-    };
-
-    // 1. Eğer bir araç az önce çalıştıysa (role == "tool"):
-    if last_msg.role == "tool" {
-        let tool_out = last_msg.content.as_deref().unwrap_or("");
-        let first_user = messages
-            .iter()
-            .find(|m| m.role == "user")
-            .and_then(|m| m.content.as_deref())
-            .unwrap_or("Gorev");
-
-        let summary = format!(
-            "◆ [Dahili Elytra Motoru — Arac Basariyla Calistirildi]\n\
-             Gorev: \"{}\"\n\n\
-             Elde Edilen Gercek Cikti:\n{}\n\n\
-             ✓ Islem tamamlandi.",
-            first_user, tool_out
-        );
-
-        return CompletionResponse {
-            content: summary,
-            tool_calls: vec![],
-        };
-    }
-
-    // 2. Kullanıcı mesajı geldiğinde araç gerekiyorsa ToolCall üret:
-    let prompt = last_msg.content.as_deref().unwrap_or("").to_lowercase();
-
-    // 2.1 Dosya okuma
-    if (prompt.contains("oku") || prompt.contains("read") || prompt.contains("goster") || prompt.contains("göster") || prompt.contains("içerik") || prompt.contains("icerik"))
-        && (prompt.contains(".toml") || prompt.contains(".rs") || prompt.contains(".json") || prompt.contains(".md") || prompt.contains("cargo") || prompt.contains("readme"))
-    {
-        let file = if prompt.contains("cargo.toml") || prompt.contains("cargo") {
-            "Cargo.toml"
-        } else if prompt.contains("readme") {
-            "README.md"
-        } else if prompt.contains("main.rs") {
-            "src/main.rs"
-        } else if prompt.contains("lib.rs") {
-            "src/lib.rs"
-        } else {
-            prompt.split_whitespace().find(|w| w.contains('.') || w.contains('/')).unwrap_or("Cargo.toml")
-        };
-
-        return CompletionResponse {
-            content: format!("'{file}' dosyasini okumak icin read_file aracini cagiriyorum."),
-            tool_calls: vec![ToolCall::new("call_demo_read", "read_file", json!({ "path": file }).to_string())],
-        };
-    }
-
-    // 2.2 Görev listesi
-    if prompt.contains("gorev") || prompt.contains("görev") || prompt.contains("task") || prompt.contains("todo") {
-        return CompletionResponse {
-            content: "Gorev listesini goruntulemek icin task_tracker aracini cagiriyorum.".into(),
-            tool_calls: vec![ToolCall::new("call_demo_task", "task_tracker", json!({ "action": "list" }).to_string())],
-        };
-    }
-
-    // 2.3 Dizin listeleme
-    if prompt.contains("list") || prompt.contains("dizin") || prompt.contains("klasor") || prompt.contains("klasör") || prompt.contains("dosyalar") {
-        let dir = if prompt.contains("src") {
-            "src"
-        } else if prompt.contains("test") {
-            "tests"
-        } else {
-            "."
-        };
-
-        return CompletionResponse {
-            content: format!("'{dir}' dizinini listelemek icin list_dir aracini cagiriyorum."),
-            tool_calls: vec![ToolCall::new("call_demo_list", "list_dir", json!({ "path": dir, "max_depth": 2 }).to_string())],
-        };
-    }
-
-    // 2.3 Git durumu
-    if prompt.contains("git status") || prompt.contains("git durum") || (prompt.contains("git") && (prompt.contains("dal") || prompt.contains("branch"))) {
-        return CompletionResponse {
-            content: "Git durumunu kontrol etmek icin git_status aracini cagiriyorum.".into(),
-            tool_calls: vec![ToolCall::new("call_demo_git", "git_status", "{}")],
-        };
-    }
-
-    // 2.4 Git diff
-    if prompt.contains("git diff") || prompt.contains("diff") || prompt.contains("fark") {
-        return CompletionResponse {
-            content: "Git degisikliklerini incelemek icin git_diff aracini cagiriyorum.".into(),
-            tool_calls: vec![ToolCall::new("call_demo_diff", "git_diff", "{}")],
-        };
-    }
-
-    // 2.5 Diagnostics / Cargo check
-    if prompt.contains("check") || prompt.contains("diagnostics") || prompt.contains("derle") || prompt.contains("linter") {
-        return CompletionResponse {
-            content: "Proje kontrolleri icin diagnostics aracini cagiriyorum.".into(),
-            tool_calls: vec![ToolCall::new("call_demo_diag", "diagnostics", "{}")],
-        };
-    }
-
-    // 2.6 Repo haritası
-    if prompt.contains("repo") || prompt.contains("harita") || prompt.contains("mimari") || prompt.contains("yapı") || prompt.contains("yapi") {
-        return CompletionResponse {
-            content: "Kod tabani mimarisi ve dosya haritasini cikarmak icin repo_map aracini cagiriyorum.".into(),
-            tool_calls: vec![ToolCall::new("call_demo_map", "repo_map", json!({ "dir": "." }).to_string())],
-        };
-    }
-
-    // 2.7 Web arama
-    if prompt.contains("web") || prompt.contains("ara") || prompt.contains("search") || prompt.contains("google") {
-        let q = last_msg.content.as_deref().unwrap_or("rust lang");
-        return CompletionResponse {
-            content: format!("Web'de '{}' aramasini gerceklestirmek icin web_search aracini cagiriyorum.", q),
-            tool_calls: vec![ToolCall::new("call_demo_search", "web_search", json!({ "query": q, "max_results": 5 }).to_string())],
-        };
-    }
-
-    // Normal sohbet veya soru
-    let resp = generate_demo_response(last_msg.content.as_deref().unwrap_or("merhaba"));
-    CompletionResponse {
-        content: resp,
-        tool_calls: vec![],
     }
 }
 
@@ -1033,42 +849,4 @@ pub fn extract_tool_calls_from_text(content: &str) -> (String, Vec<ToolCall>) {
     (clean_text, tool_calls)
 }
 
-/// Elytra Dahili Çevrimdışı Motor Yanıt Üreticisi
-pub fn generate_demo_response(prompt: &str) -> String {
-    let p_lower = prompt.to_lowercase();
 
-    // 1. Araç Listesi
-    if p_lower.contains("tool") || p_lower.contains("arac") || p_lower.contains("araç") {
-        let tools = crate::tools::get_available_tools();
-        let mut out = String::from("◆ Elytra 15 Dahili Ajan Araci:\n\n");
-        for t in tools {
-            out.push_str(&format!("  • {:<16} : {}\n", t.name, t.description));
-        }
-        return out;
-    }
-
-    if p_lower.contains("ping") || p_lower.contains("test") {
-        return "OK (Elytra Cevrimdisi Motor Calisiyor)".into();
-    }
-
-    if p_lower.contains("merhaba") || p_lower.contains("selam") || p_lower.contains("hey") || p_lower.contains("kimsin") {
-        return "◆ Merhaba! Ben Elytra — Native Rust ile gelistirilmis, ultra-hizli (<12MB RAM, 0% CPU) terminal yapay zeka asistaniyim.\n\n\
-                Dahili 15 Ajan Araci aktif: Dosya okuyabilir/yazabilir/duzenleyebilir, git durumunu gorebilir, web'de arama yapabilir ve terminal komutlari calistirabilirim.\n\n\
-                Deneyin:\n\
-                - \"Cargo.toml dosyasini oku\"\n\
-                - \"src klasorunu listele\"\n\
-                - \"git status\"\n\
-                - \"cargo check\"\n\
-                - \"proje repo haritasini cikar\"\n\
-                - \"web'de rust async ara\"\n\n\
-                ► Bulut Modellerine Baglanmak Icin: /key openrouter <anahtar> veya /key groq <anahtar>".into();
-    }
-
-    format!(
-        "◆ Elytra Cevrimdisi Motoru aktif.\n\n\
-        Sorunuz: \"{}\"\n\n\
-        Yerel dosya ve kod islemleri icin: \"Cargo.toml oku\", \"src listele\" veya \"git status\" diyebilirsiniz.\n\
-        Bulut modelleriyle derin kodlama icin: /key groq <anahtar> veya /key openrouter <anahtar> ekleyin.",
-        prompt
-    )
-}

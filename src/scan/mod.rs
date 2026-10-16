@@ -1,6 +1,6 @@
 //! Elytra Sağlayıcı Tarama Motoru (Scan Engine) — The Revolution
 //!
-//! Eski davranış: 16 sağlayıcı SIRAYLA ve her birine GERÇEK chat completion
+//! Eski davranış: sağlayıcılar SIRAYLA ve her birine GERÇEK chat completion
 //! ("Hi, reply with OK") gönderilirdi. Yavaş, kota yakıcı ve ilerlemesizdi.
 //!
 //! Yeni davranış (varsayılan):
@@ -234,21 +234,9 @@ pub async fn scan_single(client: &ApiClient, provider: &Provider, options: &Scan
         detail: String::new(),
     };
 
-    // 0. Çevrimdışı dahili motor — her zaman anında OK
-    if provider.id == "demo" || provider.id == "offline" {
-        let start = Instant::now();
-        let _ = crate::api::client::generate_demo_response("ping");
-        return ScanResult {
-            status: ScanStatus::Ok,
-            latency_ms: start.elapsed().as_millis().max(1),
-            detail: "Dahili yerel motor (sifir ag maliyeti)".into(),
-            ..base
-        };
-    }
-
     // 1. Anahtar kontrolü — anahtarı olmayan sağlayıcıya asla ağa çıkmayız
     let key = client.config_key_for(provider.id);
-    let keyless_ok = provider.id == "local" || provider.id == "nous";
+    let keyless_ok = provider.is_free_tier;
     if key.is_none() && !keyless_ok {
         return ScanResult {
             status: match options.mode {

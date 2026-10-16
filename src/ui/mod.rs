@@ -4,7 +4,7 @@
 //! - Geniş ve ferah tam ekran sohbet düzeni (Gereksiz yan panel kalabalığı yok)
 //! - OpenCode / Glitch Code tarzı dikey sol şeritli mesaj kartları (Border-Left)
 //! - Sade ve modern karşılama başlığı
-//! - Canlı /test sağlayıcı testi, 16 model sağlayıcısı, sıfır emoji
+//! - Canlı /test sağlayıcı testi, 15 model sağlayıcısı, sıfır emoji
 //! - Birleşik Model & Sağlayıcı Paleti (Split-pane Modal)
 //! - Canlı Slash (/) Komut Tamamlama Menüsü (Floating Autocomplete Popup)
 
@@ -99,7 +99,7 @@ pub const SLASH_COMMANDS: &[SlashCommandDef] = &[
     SlashCommandDef {
         name: "/test",
         args_hint: "[saglayici|all] [--full|--keys]",
-        desc: "16 saglayiciyi paralel tara (iki kademeli: baglanti + chat)",
+        desc: "15 saglayiciyi paralel tara (iki kademeli: baglanti + chat)",
     },
     SlashCommandDef {
         name: "/key",
@@ -115,11 +115,6 @@ pub const SLASH_COMMANDS: &[SlashCommandDef] = &[
         name: "/clear",
         args_hint: "",
         desc: "Sohbet gecmisini ve ekrani temizle",
-    },
-    SlashCommandDef {
-        name: "/demo",
-        args_hint: "",
-        desc: "Cevrimdisi / ucretsiz yerel motora gec",
     },
     SlashCommandDef {
         name: "/help",
@@ -172,7 +167,9 @@ async fn boot_and_loop(mut terminal: DefaultTerminal, initial_model: Option<&str
         } else if config.openai_api_key.is_some() {
             selection.set_provider_by_id("openai");
         } else {
-            selection.set_provider_by_id("demo");
+            // Anahtarsız ortamda katalogdaki ilk sağlayıcı (OpenRouter) seçilir;
+            // kullanıcıya anahtar gerekli mesajı gösterilir (sahte motor yok).
+            selection.set_provider_by_id("openrouter");
         }
     }
 
@@ -510,12 +507,12 @@ async fn boot_and_loop(mut terminal: DefaultTerminal, initial_model: Option<&str
 
                                 let prov_id = selection.provider().id.to_string();
                                 let has_key = config.get_key_for(&prov_id).is_some();
+                                let free_tier = selection.provider().is_free_tier;
 
-                                if prov_id != "local" && prov_id != "demo" && prov_id != "nous" && !has_key {
+                                if !free_tier && !has_key {
                                     messages.push(UiMessage::System(format!(
                                         "[!] [{} ({})] icin henuz API anahtari eklenmemis!\n\
-                                         Anahtar eklemek icin: /key {} <api_anahtariniz>\n\
-                                         Ucretsiz cevrimdisi mod icin: /demo",
+                                         Anahtar eklemek icin: /key {} <api_anahtariniz>",
                                         selection.provider().name,
                                         prov_id,
                                         prov_id
@@ -651,7 +648,7 @@ fn print_help_guide(messages: &mut Vec<UiMessage>) {
     let guide = "\
 ▌ ELYTRA KULLANIM REHBERI & KOMUT KILAVUZU
   ◆ Hizli Kisayollar:
-    Tab          : Model ve Saglayici Paleti (16 Saglayici + 60+ Model)
+    Tab          : Model ve Saglayici Paleti (15 Saglayici + 60+ Model)
     F1           : Hizli Komut Menusu (Tum sistem eylemleri)
     /            : Canli Komut Tamamlama (Yazarken otomatik acilir)
     Yukari/Asagi : Sohbet kaydirma veya komut secimi
@@ -663,17 +660,15 @@ fn print_help_guide(messages: &mut Vec<UiMessage>) {
     /tools                    : 15 dahili kod, git, web ve terminal aracini listeler
     /test [saglayici|all]     : API baglantilarini ve yanit gecikme surelerini sinamasini yapar
     /key <saglayici> <anahtar>: API anahtarini guvenli sekilde kaydeder
-    /config                   : Aktif ayarlari ve 16 saglayicinin anahtar durumunu listeler
-    /demo                     : Yerel cevrimdisi calisma moduna gecer (Key gerektirmez)
+    /config                   : Aktif ayarlari ve saglayicilarin anahtar durumunu listeler
     /clear                    : Sohbet gecmisini ve ekrani temizler
     /help                     : Bu yardim kilavuzunu gosterir
     /exit                     : Terminalden guvenli cikis yapar
 
-  ◆ Desteklenen 16 Model Saglayicisi:
-    Groq (14.4K istek/gun bedava), Google Gemini (1.5K istek/gun bedava),
-    Cerebras (2000 tok/sn bedava), SambaNova (ucretsiz gelistirici kotasi),
-    Mistral, OpenRouter, DeepSeek, OpenAI, Anthropic, Together AI, Perplexity,
-    Cohere, Nous Hermes (ucretsiz topluluk), xAI (Grok), Yerel (Ollama), Elytra Demo.";
+  ◆ Desteklenen Model Saglayicileri:
+    OpenRouter, Nous Research (ucretsiz katman), Groq, Google Gemini,
+    Cerebras, DeepSeek, Mistral, Z.ai, Moonshot, xAI (Grok), OpenAI,
+    Anthropic, Together AI, Fireworks, NVIDIA.";
     messages.push(UiMessage::System(guide.to_string()));
 }
 
@@ -696,39 +691,22 @@ fn print_config_status(selection: &Selection, config: &AppConfig, messages: &mut
         cwd
     );
 
-    let check_list = [
-        ("groq", "Groq Cloud", config.get_key_for("groq").is_some()),
-        ("google", "Google Gemini", config.get_key_for("google").is_some()),
-        ("openrouter", "OpenRouter", config.get_key_for("openrouter").is_some()),
-        ("anthropic", "Anthropic Claude", config.get_key_for("anthropic").is_some()),
-        ("openai", "OpenAI GPT", config.get_key_for("openai").is_some()),
-        ("deepseek", "DeepSeek API", config.get_key_for("deepseek").is_some()),
-        ("mistral", "Mistral AI", config.get_key_for("mistral").is_some()),
-        ("cerebras", "Cerebras Fast", config.get_key_for("cerebras").is_some()),
-        ("sambanova", "SambaNova", config.get_key_for("sambanova").is_some()),
-        ("together", "Together AI", config.get_key_for("together").is_some()),
-        ("perplexity", "Perplexity", config.get_key_for("perplexity").is_some()),
-        ("cohere", "Cohere AI", config.get_key_for("cohere").is_some()),
-        ("xai", "xAI Grok", config.get_key_for("xai").is_some()),
-        ("demo", "Elytra Cevrimdisi", true),
-        ("local", "Yerel (Ollama)", true),
-        ("nous", "Nous Hermes", true),
-    ];
-
-    for (id, name, has_key) in check_list {
-        let badge = if id == "demo" || id == "local" || id == "nous" {
+    // Sağlayıcı listesi artık KATALOGDAN türetilir (elle kopya yok, sahte giriş yok).
+    for p in PROVIDERS {
+        let has_key = config.get_key_for(p.id).is_some();
+        let badge = if p.is_free_tier {
             "[Ucretsiz]"
         } else if has_key {
             "[✓ Bagli] "
         } else {
             "[Key Yok] "
         };
-        let hint = if !has_key && id != "demo" && id != "local" && id != "nous" {
-            format!("(Ayarla: /key {} <anahtar>)", id)
+        let hint = if !has_key && !p.is_free_tier {
+            format!("(Ayarla: /key {} <anahtar>)", p.id)
         } else {
             String::new()
         };
-        out.push_str(&format!("  {} {:<18} {}\n", badge, name, hint));
+        out.push_str(&format!("  {} {:<18} {}\n", badge, p.name, hint));
     }
 
     messages.push(UiMessage::System(out));
@@ -807,10 +785,6 @@ fn handle_slash_command(
                 messages.push(UiMessage::System(format!("Aktif saglayici '{}' test ediliyor...", current_id)));
                 run_provider_test(current_id, config, tx);
             }
-        }
-        "/demo" | "/offline" => {
-            selection.set_provider_by_id("demo");
-            messages.push(UiMessage::System("✓ Elytra Cevrimdisi Moduna gecildi (Yerel motor).".into()));
         }
         "/key" | "/setkey" => {
             if parts.len() < 3 {
@@ -1260,14 +1234,17 @@ fn render_unified_model_picker_modal(
         .collect();
     frame.render_widget(Paragraph::new(sep_lines), columns[1]);
 
-    // ── Sol Sütun: 16 Sağlayıcı Listesi ──
+    // ── Sol Sütun: Sağlayıcı Listesi ──
     let mut prov_lines = Vec::new();
     let prov_title_style = if !focus_models {
         Style::default().fg(theme::Theme::PRIMARY).add_modifier(Modifier::BOLD)
     } else {
         theme::muted()
     };
-    prov_lines.push(Line::from(Span::styled(" ▌ SAGLAYICILAR (16)", prov_title_style)));
+    prov_lines.push(Line::from(Span::styled(
+        format!(" ▌ SAGLAYICILAR ({})", PROVIDERS.len()),
+        prov_title_style
+    )));
     prov_lines.push(Line::from(""));
 
     for (i, p) in PROVIDERS.iter().enumerate() {
@@ -1285,7 +1262,7 @@ fn render_unified_model_picker_modal(
         let active_mark = if is_active { "● " } else { "  " };
 
         let has_key = config.get_key_for(p.id).is_some();
-        let badge = if p.id == "demo" || p.id == "local" || p.id == "nous" {
+        let badge = if p.is_free_tier {
             Span::styled("[Ucr.]", Style::default().fg(theme::Theme::SUCCESS))
         } else if has_key {
             Span::styled("[✓Key]", Style::default().fg(theme::Theme::PRIMARY))
@@ -1405,9 +1382,9 @@ fn render_command_menu_modal(frame: &mut Frame, current_idx: usize) {
         ));
 
     let commands = [
-        ("Model & Saglayici Paleti (Tab)", "16 saglayici ve 60+ model arasinda gezinin", "MODEL & BAGLANTI"),
+        ("Model & Saglayici Paleti (Tab)", "15 saglayici ve 60+ model arasinda gezinin", "MODEL & BAGLANTI"),
         ("Secili Saglayiciyi Test Et (/test)", "Gecikme suresini ve yaniti dogrulayin", "MODEL & BAGLANTI"),
-        ("Tum Saglayicilari Test Et (/test all)", "16 saglayici baglantisini topluca sinayin", "MODEL & BAGLANTI"),
+        ("Tum Saglayicilari Test Et (/test all)", "15 saglayici baglantisini topluca sinayin", "MODEL & BAGLANTI"),
         ("API Anahtari Ayarla (/key)", "Guvenli API anahtari yapilandirin", "MODEL & BAGLANTI"),
 
         ("Otonom Kod Ajani (/agent)", "15 dahili aracla kod yazma ve terminal dongusu", "AJAN & OTOMASYON"),

@@ -66,7 +66,7 @@ pub fn welcome_banner(provider_name: &str, model_name: &str) -> Vec<Line<'static
         ]),
         Line::from(""),
         Line::from(vec![
-            Span::styled("  Terminal-Native AI Coding Assistant · 16 Saglayici & 15 Dahili Arac", st_sub),
+            Span::styled("  Terminal-Native AI Coding Assistant · 15 Saglayici & 15 Dahili Arac", st_sub),
         ]),
         Line::from(vec![
             Span::styled("  Aktif: ", st_muted),
@@ -85,7 +85,7 @@ pub fn welcome_banner(provider_name: &str, model_name: &str) -> Vec<Line<'static
         ]),
         Line::from(""),
         Line::from(vec![
-            Span::styled("  • Tab tusuna basarak 16 saglayici ve modelleri arasinda gecis yapabilirsiniz.", st_muted),
+            Span::styled("  • Tab tusuna basarak 15 saglayici ve modelleri arasinda gecis yapabilirsiniz.", st_muted),
         ]),
         Line::from(vec![
             Span::styled("  • / yazarak canli komut listesini goruntuleyebilir veya /agent ile gorev verebilirsiniz.", st_muted),

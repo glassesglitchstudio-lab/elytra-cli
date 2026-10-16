@@ -5,31 +5,37 @@ use elytra_cli::config::AppConfig;
 
 #[tokio::test]
 async fn test_provider_catalog_completeness() {
-    // 16 sağlayıcının tamamının tanımlı olduğunu doğrula
-    assert!(PROVIDERS.len() >= 16, "En az 16 sağlayıcı kayıtlı olmalıdır");
+    // 15 sağlayıcının tamamının tanımlı olduğunu doğrula
+    assert!(PROVIDERS.len() >= 15, "En az 15 sağlayıcı kayıtlı olmalıdır");
 
     let expected_ids = [
-        "demo", "google", "groq", "cerebras", "sambanova", "mistral",
-        "openrouter", "local", "nous", "deepseek", "openai", "anthropic",
-        "together", "xai", "perplexity", "cohere",
+        "openrouter", "nous", "groq", "google", "cerebras", "deepseek",
+        "mistral", "zai", "moonshot", "xai", "openai", "anthropic",
+        "together", "fireworks", "nvidia",
     ];
 
     for expected in expected_ids {
         let exists = PROVIDERS.iter().any(|p| p.id == expected);
         assert!(exists, "Sağlayıcı '{}' katalogda bulunamadı!", expected);
     }
+
+    // Katalogda sahte/yerel motor bulunmamalı
+    for banned in ["demo", "offline", "local", "ollama", "perplexity", "sambanova", "cohere"] {
+        let exists = PROVIDERS.iter().any(|p| p.id == banned);
+        assert!(!exists, "Sahte sağlayıcı '{}' katalogda BULUNAMAZ!", banned);
+    }
 }
 
 #[tokio::test]
-async fn test_offline_demo_provider() {
-    let config = AppConfig::default();
+async fn test_missing_key_reports_honest_error() {
+    let config = AppConfig::default(); // tüm anahtarlar boş
     let client = ApiClient::new(config);
 
-    // Çevrimdışı test fonksiyonu 0ms civarında dönmeli ve başarılı olmalıdır
-    let res = client.test_provider("demo").await;
-    assert!(res.success, "Demo sağlayıcı testi başarılı olmalı");
-    assert!(res.latency_ms <= 100, "Demo sağlayıcı anında yanıt vermelidir");
-    assert!(res.message.contains("OK"), "Demo yanıtı OK içermelidir");
+    // Gerçek bir sağlayıcı için anahtar yoksa dürüstçe hata dönmeli
+    let res = client.test_provider("openai").await;
+    assert!(!res.success, "Anahtarsız sağlayıcı başarılı olmamalı");
+    assert!(res.message.to_lowercase().contains("anahtar"),
+        "Hata mesajı anahtar gerektiğini belirtmelidir: {}", res.message);
 }
 
 #[tokio::test]
@@ -147,23 +153,4 @@ async fn test_extract_tool_calls_from_text() {
     assert_eq!(calls_json[0].function.name, "list_dir");
 }
 
-#[tokio::test]
-async fn test_demo_completion_react_flow() {
-    use elytra_cli::api::client::{generate_demo_completion, ChatMessage};
-
-    // 1. Adım: Kullanıcı dosya okuma istediğinde ToolCall dönmeli
-    let msgs_step1 = vec![ChatMessage::user("Cargo.toml dosyasını oku ve versiyonu söyle")];
-    let resp1 = generate_demo_completion(&msgs_step1);
-    assert!(!resp1.tool_calls.is_empty(), "Kullanıcı dosya okuma isteyince araç çağrısı üretilmelidir");
-    assert_eq!(resp1.tool_calls[0].function.name, "read_file");
-
-    // 2. Adım: Araç çalıştıktan sonra sonuç geldiğinde sentez yanıtı dönmeli
-    let msgs_step2 = vec![
-        ChatMessage::user("Cargo.toml dosyasını oku"),
-        ChatMessage::tool(resp1.tool_calls[0].id.clone(), "[Cargo.toml] version = \"0.1.0\""),
-    ];
-    let resp2 = generate_demo_completion(&msgs_step2);
-    assert!(resp2.tool_calls.is_empty(), "Sonuç geldikten sonra nihai yanıt dönmeli");
-    assert!(resp2.content.contains("0.1.0"), "Nihai yanıt araç çıktısını içermelidir");
-}
 

@@ -24,7 +24,7 @@ use util::truncate_chars;
     version,
     about = "Elytra — Iridesan Hiz Motoruyla Guclendirilmis Terminal AI Asistani & Otonom Ajan",
     long_about = "Elytra, Glitch Code'un tum yeteneklerini (ReAct ajan dongusu, \
-                  dosya okuma/yazma/duzenleme, guvenli terminal komutlari, 16 model saglayicisi destegi) \
+                  dosya okuma/yazma/duzenleme, guvenli terminal komutlari, coklu model saglayicisi destegi) \
                   sifir bellek yuku ve milisaniyelik yanit hiziyla sunan yerel Rust CLI aracidir."
 )]
 struct Cli {
@@ -282,7 +282,7 @@ async fn run_cli_agent(task: &str, model_override: Option<&str>) -> anyhow::Resu
 
 /// Modelleri listele
 fn print_models() {
-    println!("\x1b[38;2;64;224;160m◆ ELYTRA MODEL VE SAGLAYICI KATALOGU (16 Saglayici)\x1b[0m\n");
+    println!("\x1b[38;2;64;224;160m◆ ELYTRA MODEL VE SAGLAYICI KATALOGU ({} Saglayici)\x1b[0m\n", elytra_cli::api::providers::PROVIDERS.len());
     for p in api::PROVIDERS {
         let tier_label = if p.is_free_tier { "\x1b[32m[Ucretsiz Katman]\x1b[0m" } else { "\x1b[34m[Bulut/API]\x1b[0m" };
         println!("\x1b[1m{} ({})\x1b[0m {} — {}", p.name, p.id, tier_label, p.hint);

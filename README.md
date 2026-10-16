@@ -22,8 +22,8 @@
 ## Gorsel Kimlik & OpenCode Tarzi Arayuz
 
 **Elytra** = aerodinamik, iridesan (zumrut, turkuaz, mor) vektor kanat kilifi.
-- **Birlesik Model & Saglayici Paleti (`Tab`)**: 16 saglayiciyi sol sutunda baglanti/ucretsizlik rozetleriyle, o saglayicinin modellerini ise sag sutunda token baglami ve detaylariyla gosteren bolunmus cift-panelli palet (`Left/Right/Tab` ile gecis, `Up/Down` ile gezinme, `Enter` ile aninda aktivasyon).
-- **Canli Slash (/) Komut Menusu**: Giris kutusuna `/` yazildiginda komut kutusunun hemen ustunde acilan, `Tab` ile otomatik tamamlanan akilli floating autocomplete menusu (`/model`, `/agent`, `/tools`, `/test`, `/key`, `/config`, `/help`, `/clear`, `/demo`, `/exit`).
+- **Birlesik Model & Saglayici Paleti (`Tab`)**: 15 saglayiciyi sol sutunda baglanti/ucretsizlik rozetleriyle, o saglayicinin modellerini ise sag sutunda token baglami ve detaylariyla gosteren bolunmus cift-panelli palet (`Left/Right/Tab` ile gecis, `Up/Down` ile gezinme, `Enter` ile aninda aktivasyon).
+- **Canli Slash (/) Komut Menusu**: Giris kutusuna `/` yazildiginda komut kutusunun hemen ustunde acilan, `Tab` ile otomatik tamamlanan akilli floating autocomplete menusu (`/model`, `/agent`, `/tools`, `/test`, `/key`, `/config`, `/help`, `/clear`, `/exit`).
 - **OpenCode Tam Ekran Duzen**: Sol seritli dikey kartlar (`▌ You`, `▌ Elytra`, `▌ Tool`, `▌ System`), ferah sohbet akisi.
 - **Hizli Komut Menusu (`F1`)**: Model & Baglanti, Ajan & Otomasyon, Sistem olmak uzere 3 temiz kategoriye ayrilmis eylem merkezi.
 - **Sifir Emoji**: Terminalde piksel kaymalarini onleyen saf monospaced vektor blok tasarimi (`◆`, `●`, `►`, `✓`, `[OK]`, `[Key]`, `[Ucr.]`).
@@ -32,28 +32,27 @@
 
 ## Temel Yetenekler
 
-### 1. 16 Model Saglayicisi & Dahili Baglanti Testi (`/test`)
+### 1. 15 Model Saglayicisi & Dahili Baglanti Testi (`/test`)
 - **Ucretsiz Katman Modelleri**:
-  - **Elytra Cevrimdisi (`demo`)**: Sifir-key, yerel aninda calisan dahili motor (1ms).
+  - **OpenRouter (`openrouter`)**: 460+ model, 15+ ucretsiz model (DeepSeek, Claude, GPT-4o Mini).
+  - **Nous Research (`nous`)**: Ucretsiz katman — Stealth, Space Bunny ve topluluk modelleri.
   - **Google Gemini (`google`)**: Gunde 1.500 istek bedava (Gemini 2.0 Flash, Gemini 1.5 Pro).
   - **Groq Cloud (`groq`)**: Gunde 14.400 istek bedava (Llama 3.3 70B, Qwen 2.5 Coder 32B).
   - **Cerebras Cloud (`cerebras`)**: Ultra-hizli ucretsiz GPU cikarimi (2000+ tok/sn).
-  - **SambaNova (`sambanova`)**: %100 Ucretsiz Qwen 2.5 Coder 32B ve Llama 70B.
   - **Mistral AI (`mistral`)**: Gelistirici bedava kotasi (Codestral kod uzmani).
-  - **OpenRouter (`openrouter`)**: DeepSeek V3, Claude 3.5 Sonnet, GPT-4o Mini ve ucretsiz modeller.
-  - **Ollama (`local`)**: Yerel cevrimdisi modeller (`localhost:11434`).
-  - **Nous Research (`nous`)**: Stealth ve Space Bunny modelleri.
-- **Populer Bulut & Akil Yurutme Modelleri**:
+  - **Together AI (`together`)**: Hizli Llama 3.3 70B Turbo ve DeepSeek R1.
+  - **Fireworks (`fireworks`)**: Ucretsiz katman, Llama ve DeepSeek modelleri.
+- **Bulut & Akil Yurutme Modelleri**:
   - **DeepSeek Resmi (`deepseek`)**: DeepSeek-V3 ve DeepSeek-R1 (Thinking).
   - **OpenAI (`openai`)**: GPT-4o, GPT-4o Mini, o1, o3-mini.
   - **Anthropic (`anthropic`)**: Resmi Messages API ile Claude 3.5 Sonnet & Haiku.
-  - **Together AI (`together`)**: Hizli Llama 3.3 70B Turbo ve DeepSeek R1.
   - **xAI Grok (`xai`)**: Grok 2 ve Grok Beta.
-  - **Perplexity AI (`perplexity`)**: Gercek zamanli internet aramali Sonar Pro.
-  - **Cohere (`cohere`)**: Command R+ ve Command R.
+  - **Z.ai (`zai`)**: GLM-4 ucretsiz katman ve gelistirici modelleri.
+  - **Moonshot (`moonshot`)**: Kimi modelleri.
+  - **NVIDIA (`nvidia`)**: Nemotron modelleri.
 
 ### 2. Canli Saglayici Taramasi (`/test` ve CLI `elytra test`) — Devrim
-- **Paralel tarama**: 16 saglayici ayni anda taranir (varsayilan 8 es zamanli, tokio JoinSet).
+- **Paralel tarama**: 15 saglayici ayni anda taranir (varsayilan 8 es zamanli, tokio JoinSet).
 - **Iki kademeli dogrulama**: once ucuz baglanti kontrolu (GET /models), istege bagli tam chat dogrulamasi.
 - **Sifir maliyet**: API anahtari tanimli olmayan saglayiciya hic ag istegi atilmaz (aninda `[KEY YOK]`).
 - **Akan sonuclar**: her saglayicinin sonucu hazir oldugunda aninda raporlanir (sirali bekleme yok).
@@ -126,13 +125,11 @@ cargo run -- test --timeout 3000 --concurrency 16
 ### 2. Komutlar
 - `/tools` — 15 dahili kod ve terminal aracini listeler.
 - `/test` — Aktif saglayicinin baglantisini ve gecikmesini test eder.
-- `/test all` — 16 saglayiciyi birden test eder.
+- `/test all` — 15 saglayiciyi birden test eder.
 - `/key <saglayici> <anahtar>` — API anahtari kaydeder (`/key groq gsk_...`).
-- `/demo` — Cevrimdisi yerel motora gecer.
 - `/agent <gorev>` — Otonom ajan ReAct oturumu baslatir.
 - `/clear` — Ekrani temizler.
 - `/exit` — Elytra'dan ayrilir.
-- `/demo` — Elytra Dahili Cevrimdisi moduna gecer (Anahtarsiz).
 - `/key <saglayici> <anahtar>` — API anahtarini kaydeder (Orn: `/key groq gsk_...`, `/key openrouter sk-or-...`, `/key google AIzaSy...`).
 - `/model <ad>` — Ozel model belirler (Orn: `/model deepseek/deepseek-chat`, `/model gpt-4o`).
 - `/agent <gorev>` — ReAct otonom kod ajanini calistirir.

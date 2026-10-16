@@ -23,12 +23,12 @@ async fn scan_all_providers_streams_results_and_summarizes() {
     })
     .await;
 
-    // Keys modunda: 16 sağlayıcı hepsi sonuç döndürmeli (hiç ağa çıkmaz)
-    assert_eq!(streamed.len(), 16, "Her sağlayıcı bir sonuç akıtmalı");
-    assert_eq!(summary.total, 16);
-    assert_eq!(summary.ok + summary.skipped, 16);
-    // Anahtarsız ortamda çoğu Skipped, demo Ok
-    assert!(summary.ok >= 1, "En az demo motoru OK dönmeli");
+    // Keys modunda: tüm sağlayıcılar sonuç döndürmeli (hiç ağa çıkmaz)
+    assert_eq!(streamed.len(), elytra_cli::api::providers::PROVIDERS.len(), "Her sağlayıcı bir sonuç akıtmalı");
+    assert_eq!(summary.total, elytra_cli::api::providers::PROVIDERS.len());
+    assert_eq!(summary.ok + summary.skipped, elytra_cli::api::providers::PROVIDERS.len());
+    // Anahtarsız ortamda sağlayıcılar Skipped olur (sahte motor yok)
+    assert!(summary.skipped >= 1, "Anahtarsiz ortamda en az bir saglayici Skipped olmali");
     assert!(summary.total_duration_ms < 1000, "Keys modu ağ kullanmaz, çok hızlı olmalı");
 }
 

@@ -31,7 +31,7 @@ pub struct AppConfig {
     pub perplexity_api_key: Option<String>,
     pub cohere_api_key: Option<String>,
 
-    /// Özel OpenAI-uyumlu endpoint (Ollama, vLLM, LMStudio veya özel sunucu için)
+    /// Özel OpenAI-uyumlu endpoint (vLLM, LMStudio veya özel sunucu için)
     pub custom_base_url: Option<String>,
     pub custom_api_key: Option<String>,
 
@@ -139,7 +139,6 @@ impl AppConfig {
     /// Belirtilen sağlayıcı için anahtarı döndür
     pub fn get_key_for(&self, provider: &str) -> Option<String> {
         match provider.to_lowercase().as_str() {
-            "demo" | "offline" | "elytra" => Some("offline-free".into()),
             "nous" => self.nous_api_key.clone(),
             "openai" => self.openai_api_key.clone(),
             "anthropic" => self.anthropic_api_key.clone(),
@@ -154,7 +153,6 @@ impl AppConfig {
             "together" => self.together_api_key.clone(),
             "perplexity" => self.perplexity_api_key.clone(),
             "cohere" => self.cohere_api_key.clone(),
-            "custom" | "ollama" | "local" => self.custom_api_key.clone(),
             _ => None,
         }
     }
