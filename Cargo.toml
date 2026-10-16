@@ -6,22 +6,31 @@ description = "Elytra — terminal AI asistanı. Sıfırdan Rust ile yazıldı."
 authors = ["Berkay Gülmez"]
 
 [dependencies]
+# Sağlayıcı/model kataloğu — ayrı crate (elytra-providers)
+elytra-providers = { path = "../elytra-providers" }
 # TUI çatısı — terminal arayüzü için
 ratatui = "0.29"
 crossterm = "0.28"
 # Async runtime — API çağrıları için
 tokio = { version = "1", features = ["full"] }
-# HTTP istemcisi — modele istek atmak için
-reqwest = { version = "0.12", features = ["json"] }
+# HTTP istemcisi — modele istek atmak ve SSE akışı için
+reqwest = { version = "0.12", features = ["json", "stream"] }
+tokio-stream = "0.1"
 # JSON serileştirme
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# Config dosyası formatı (TOML)
+toml = "0.8"
 # CLI argümanları
 clap = { version = "4", features = ["derive"] }
-# Hata yönetimi — başlangıç için en pratik kütüphane
+# Hata yönetimi
 anyhow = "1"
 # Kullanıcı config dizinleri (~/.config/elytra vb.)
 dirs = "5"
+# Dosya arama ve regex (Ajan araçları için)
+regex = "1"
+walkdir = "2"
+chrono = { version = "0.4", features = ["serde"] }
 
 [profile.release]
 # Release build'i küçült ve hızlandır

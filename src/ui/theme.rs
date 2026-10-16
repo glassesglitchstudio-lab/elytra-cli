@@ -11,6 +11,7 @@ use ratatui::style::{Color, Modifier, Style};
 /// terminallerde). Paletin tamamı koyu zemine göre tasarlandı.
 pub struct Theme;
 
+#[allow(dead_code)]
 impl Theme {
     /// Arka plan — çok koyu, hafif yeşil tonlu siyah (böcek kabuğu gölgesi)
     pub const BG: Color = Color::Rgb(8, 12, 10);
@@ -43,6 +44,16 @@ impl Theme {
     pub const ASSISTANT: Color = Color::Rgb(180, 240, 210);
 }
 
+#[allow(dead_code)]
+pub fn error() -> Style {
+    Style::default().fg(Theme::ERROR)
+}
+
+#[allow(dead_code)]
+pub fn success() -> Style {
+    Style::default().fg(Theme::SUCCESS)
+}
+
 /// Sık kullanılan stiller — tek satırda erişim için yardımcı fonksiyonlar
 pub fn text() -> Style {
     Style::default().fg(Theme::TEXT)
@@ -72,6 +83,7 @@ pub fn title() -> Style {
 }
 
 /// Kullanıcı mesajı stili
+#[allow(dead_code)]
 pub fn user() -> Style {
     Style::default().fg(Theme::USER)
 }
@@ -82,6 +94,7 @@ pub fn assistant() -> Style {
 }
 
 /// İridesan geçiş için renk listesi (gradient bar çizmekte kullanılır)
+#[allow(dead_code)]
 pub const IRIDESCENT: [Color; 5] = [
     Color::Rgb(64, 224, 160),  // yeşil
     Color::Rgb(80, 200, 220),  // turkuaz
