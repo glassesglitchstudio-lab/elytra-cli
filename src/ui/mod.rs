@@ -8,6 +8,7 @@
 //! - Birleşik Model & Sağlayıcı Paleti (Split-pane Modal)
 //! - Canlı Slash (/) Komut Tamamlama Menüsü (Floating Autocomplete Popup)
 
+pub mod file_tree;
 pub mod mascot;
 pub mod theme;
 
@@ -179,6 +180,8 @@ async fn boot_and_loop(mut terminal: DefaultTerminal, initial_model: Option<&str
     let mut active_modal = ActiveModal::None;
     let mut anim_frame: usize = 0;
     let mut slash_selected_idx: usize = 0;
+    // Elytra IDE — dosya ağacı paneli (Ctrl+B ile açılır)
+    let mut file_tree = file_tree::FileTree::from_cwd();
 
     let (worker_tx, mut worker_rx) = mpsc::channel::<WorkerEvent>(100);
     let mut is_streaming = false;
@@ -252,6 +255,7 @@ async fn boot_and_loop(mut terminal: DefaultTerminal, initial_model: Option<&str
                 &active_modal,
                 &config,
                 slash_selected_idx,
+                &file_tree,
             );
         })?;
 
@@ -455,6 +459,36 @@ async fn boot_and_loop(mut terminal: DefaultTerminal, initial_model: Option<&str
                 match key.code {
                     KeyCode::Esc => break,
                     KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => break,
+
+                    // ── ELYTRA IDE: dosya ağacı ──
+                    // Ctrl+B paneli açar/kapatır; panel açıkken ok tuşları ağaçta gezer.
+                    KeyCode::Char('b') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                        file_tree.toggle();
+                    }
+                    KeyCode::Up if file_tree.open => file_tree.yukari(),
+                    KeyCode::Down if file_tree.open => file_tree.asagi(),
+                    KeyCode::Enter if file_tree.open && input.is_empty() => {
+                        // Klasörde aç/kapa; dosyada içeriği sohbete getir
+                        if let Some(yol) = file_tree.secili_dosya() {
+                            match std::fs::read_to_string(&yol) {
+                                Ok(icerik) => {
+                                    let ad = yol.file_name().unwrap_or_default().to_string_lossy().to_string();
+                                    let onizleme: String = icerik.chars().take(4000).collect();
+                                    messages.push(UiMessage::System(format!(
+                                        "[Dosya] {ad} ({} satır)\n{}",
+                                        icerik.lines().count(),
+                                        onizleme
+                                    )));
+                                }
+                                Err(e) => messages.push(UiMessage::System(format!(
+                                    "[!] Dosya okunamadı: {e}"
+                                ))),
+                            }
+                        } else {
+                            file_tree.ac_kapa();
+                        }
+                    }
+                    KeyCode::Left if file_tree.open => file_tree.ust_dizine_cik(),
 
                     KeyCode::F(1) => {
                         active_modal = ActiveModal::CommandMenu { selected_idx: 0 };
@@ -922,9 +956,21 @@ fn draw_main(
     active_modal: &ActiveModal,
     config: &AppConfig,
     slash_selected_idx: usize,
+    file_tree: &file_tree::FileTree,
 ) {
     let area = frame.area();
     frame.render_widget(Block::default().style(Style::default().bg(theme::Theme::BG)), area);
+
+    // ── ELYTRA IDE: sol dosya ağacı paneli (Ctrl+B) ──
+    // Panel açıksa içerik alanı sağa kaydırılır.
+    let icerik_alani = if file_tree.open {
+        let yatay = Layout::horizontal([Constraint::Length(32), Constraint::Min(20)]).split(area);
+        render_file_tree(frame, yatay[0], file_tree);
+        yatay[1]
+    } else {
+        area
+    };
+    let area = icerik_alani;
 
     // Dikey Yerleşim:
     // 0. Neon Accent Çizgisi (1)
@@ -1122,6 +1168,81 @@ fn draw_main(
             render_command_menu_modal(frame, *selected_idx);
         }
         ActiveModal::None => {}
+    }
+}
+
+/// Sol dosya ağacı panelini çizer (Elytra IDE).
+fn render_file_tree(frame: &mut Frame, area: Rect, tree: &file_tree::FileTree) {
+    use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph};
+
+    let kok = tree
+        .root
+        .file_name()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_else(|| tree.root.display().to_string());
+
+    let blok = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(theme::Theme::ACCENT))
+        .title(format!(" {kok} "));
+
+    // Görünür pencere (kaydırma)
+    let ic_yukseklik = area.height.saturating_sub(2) as usize;
+    let bas = tree.scroll as usize;
+    let son = (bas + ic_yukseklik).min(tree.entries.len());
+
+    let satirlar: Vec<ListItem> = tree.entries[bas..son]
+        .iter()
+        .enumerate()
+        .map(|(i, e)| {
+            let gercek = bas + i;
+            let secili = gercek == tree.selected;
+            let girinti = "  ".repeat(e.depth);
+            let ikon = if e.is_dir {
+                if e.expanded { "[-]" } else { "[+]" }
+            } else {
+                " · "
+            };
+            let metin = format!("{girinti}{ikon} {}", e.name);
+            let stil = if secili {
+                Style::default()
+                    .bg(theme::Theme::ACCENT)
+                    .fg(theme::Theme::BG)
+                    .add_modifier(ratatui::style::Modifier::BOLD)
+            } else if e.is_dir {
+                Style::default().fg(theme::Theme::ACCENT)
+            } else {
+                Style::default().fg(theme::Theme::TEXT)
+            };
+            ListItem::new(metin).style(stil)
+        })
+        .collect();
+
+    let icerik = if satirlar.is_empty() {
+        List::new(vec![ListItem::new("(boş)")])
+    } else {
+        List::new(satirlar)
+    };
+
+    frame.render_widget(icerik.block(blok.clone()), area);
+
+    // Alt bilgi: seçili öğe veya kısayol ipucu
+    let ipucu = match tree.secili() {
+        Some(e) if e.is_dir => format!("{}  (Enter: aç/kapa)", e.name),
+        Some(e) => format!("{}  (Enter: aç)", e.name),
+        None => "Ctrl+B: kapat".to_string(),
+    };
+    if area.height >= 3 {
+        let alt = Rect {
+            x: area.x,
+            y: area.y + area.height - 1,
+            width: area.width,
+            height: 1,
+        };
+        frame.render_widget(
+            Paragraph::new(format!(" {ipucu}")).style(Style::default().fg(theme::Theme::MUTED)),
+            alt,
+        );
     }
 }
 
