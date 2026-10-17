@@ -11,6 +11,8 @@
 pub mod code_view;
 pub mod diff_view;
 pub mod file_tree;
+pub mod sekmeler;
+pub mod terminal_panel;
 pub mod mascot;
 pub mod theme;
 
@@ -188,6 +190,12 @@ async fn boot_and_loop(mut terminal: DefaultTerminal, initial_model: Option<&str
     let mut code_view = code_view::CodeView::new();
     // Elytra IDE — diff görünümü paneli (Ctrl+D ile açılır)
     let mut diff_view = diff_view::DiffView::new();
+    // Elytra IDE — terminal paneli (Ctrl+T ile açılır)
+    let mut terminal_panel = terminal_panel::TerminalPanel::new(
+        std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")),
+    );
+    // Elytra IDE — açık dosya sekmeleri
+    let mut sekmeler = sekmeler::Sekmeler::new();
 
     let (worker_tx, mut worker_rx) = mpsc::channel::<WorkerEvent>(100);
     let mut is_streaming = false;
@@ -248,6 +256,9 @@ async fn boot_and_loop(mut terminal: DefaultTerminal, initial_model: Option<&str
             MascotMood::Idle(anim_frame / 6)
         };
 
+        // Arka plan komut sonuçlarını topla
+        terminal_panel.sonuc_yokla();
+
         // Render
         let current_input = input.clone();
         terminal.draw(|frame| {
@@ -264,6 +275,8 @@ async fn boot_and_loop(mut terminal: DefaultTerminal, initial_model: Option<&str
                 &file_tree,
                 &code_view,
                 &diff_view,
+                &terminal_panel,
+                &sekmeler,
             );
         })?;
 
@@ -468,10 +481,36 @@ async fn boot_and_loop(mut terminal: DefaultTerminal, initial_model: Option<&str
                     KeyCode::Esc => break,
                     KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => break,
 
-                    // ── ELYTRA IDE: dosya ağacı + kod görüntüleyici ──
-                    // Ctrl+B ağacı, Ctrl+E kodu açar/kapatır.
+                    // ── ELYTRA IDE: paneller + sekmeler ──
+                    // Ctrl+B ağaç · Ctrl+E kod · Ctrl+D diff · Ctrl+T terminal
                     KeyCode::Char('b') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                         file_tree.toggle();
+                    }
+                    KeyCode::Char('t') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                        terminal_panel.toggle();
+                    }
+                    KeyCode::Tab if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                        sekmeler.sonraki();
+                        if let Some(y) = sekmeler.aktif_dosya().cloned() {
+                            code_view.yukle(&y);
+                        }
+                    }
+                    KeyCode::Char('w') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                        sekmeler.kapat_aktif();
+                        if let Some(y) = sekmeler.aktif_dosya().cloned() {
+                            code_view.yukle(&y);
+                        } else {
+                            code_view.kapat();
+                        }
+                    }
+                    KeyCode::Char(d) if key.modifiers.contains(KeyModifiers::CONTROL) && d.is_ascii_digit() => {
+                        let n = d.to_digit(10).unwrap_or(1) as usize;
+                        if n >= 1 {
+                            sekmeler.sec(n - 1);
+                            if let Some(y) = sekmeler.aktif_dosya().cloned() {
+                                code_view.yukle(&y);
+                            }
+                        }
                     }
                     KeyCode::Char('e') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                         code_view.toggle();
@@ -497,6 +536,7 @@ async fn boot_and_loop(mut terminal: DefaultTerminal, initial_model: Option<&str
                     KeyCode::Enter if file_tree.open && input.is_empty() => {
                         // Klasörde aç/kapa; dosyada KOD GÖRÜNTÜLEYİCİYE yükle
                         if let Some(yol) = file_tree.secili_dosya() {
+                            sekmeler.ac(yol.clone());
                             code_view.yukle(&yol);
                         } else {
                             file_tree.ac_kapa();
@@ -521,10 +561,17 @@ async fn boot_and_loop(mut terminal: DefaultTerminal, initial_model: Option<&str
                     KeyCode::PageDown => scroll_offset = scroll_offset.saturating_sub(8),
 
                     KeyCode::Char(c) => {
-                        input.push(c);
-                        if input.starts_with('/') {
-                            slash_selected_idx = 0;
+                        if terminal_panel.open {
+                            terminal_panel.input.push(c);
+                        } else {
+                            input.push(c);
+                            if input.starts_with('/') {
+                                slash_selected_idx = 0;
+                            }
                         }
+                    }
+                    KeyCode::Backspace if terminal_panel.open => {
+                        terminal_panel.input.pop();
                     }
                     KeyCode::Backspace => {
                         input.pop();
@@ -533,6 +580,9 @@ async fn boot_and_loop(mut terminal: DefaultTerminal, initial_model: Option<&str
                         }
                     }
 
+                    KeyCode::Enter if terminal_panel.open => {
+                        terminal_panel.calistir();
+                    }
                     KeyCode::Enter => {
                         let trimmed = input.trim().to_string();
                         if !trimmed.is_empty() {
@@ -973,6 +1023,8 @@ fn draw_main(
     file_tree: &file_tree::FileTree,
     code_view: &code_view::CodeView,
     diff_view: &diff_view::DiffView,
+    terminal_panel: &terminal_panel::TerminalPanel,
+    sekmeler: &sekmeler::Sekmeler,
 ) {
     let area = frame.area();
     frame.render_widget(Block::default().style(Style::default().bg(theme::Theme::BG)), area);
@@ -1017,9 +1069,51 @@ fn draw_main(
     ])
     .split(area);
 
+    // Terminal paneli açıksa sohbet alanı ikiye bölünür: [sohbet | terminal]
+    let sohbet_alani = if terminal_panel.open {
+        let dikey = Layout::vertical([Constraint::Min(4), Constraint::Length(14)])
+            .split(chunks[2]);
+        render_terminal(frame, dikey[1], terminal_panel);
+        dikey[0]
+    } else {
+        chunks[2]
+    };
+
     // ── 0. Neon Accent Çizgisi ──
     let accent_line = Line::from(Span::styled("━".repeat(area.width as usize), Style::default().fg(theme::Theme::PRIMARY)));
     frame.render_widget(Paragraph::new(accent_line), chunks[0]);
+
+    // ── 0b. Sekme çubuğu (açık dosya varsa) ──
+    if !sekmeler.bos() && area.height > 8 {
+        let mut parcalar: Vec<Span> = Vec::new();
+        for (i, yol) in sekmeler.dosyalar.iter().enumerate() {
+            let ad = yol
+                .file_name()
+                .map(|s| s.to_string_lossy().to_string())
+                .unwrap_or_else(|| "?".into());
+            let aktif = i == sekmeler.aktif;
+            let metin = format!(" {} {} ", i + 1, ad);
+            let stil = if aktif {
+                Style::default()
+                    .bg(theme::Theme::PRIMARY)
+                    .fg(theme::Theme::BG)
+                    .add_modifier(ratatui::style::Modifier::BOLD)
+            } else {
+                Style::default().fg(theme::Theme::MUTED)
+            };
+            parcalar.push(Span::styled(metin, stil));
+            parcalar.push(Span::raw(" "));
+        }
+        frame.render_widget(
+            Paragraph::new(Line::from(parcalar)),
+            Rect {
+                x: area.x,
+                y: area.y + 1,
+                width: area.width,
+                height: 1,
+            },
+        );
+    }
 
     // ── 1. Üst Bar (OpenCode Top Bar) ──
     let cwd = std::env::current_dir()
@@ -1113,7 +1207,7 @@ fn draw_main(
         }
     }
 
-    let chat_area = chunks[2];
+    let chat_area = sohbet_alani;
     let total_lines = chat_lines.len() as u16;
     let visible_lines = chat_area.height;
 
@@ -1710,4 +1804,59 @@ fn render_diff_view(frame: &mut Frame, area: Rect, dv: &diff_view::DiffView) {
             alt,
         );
     }
+}
+
+/// Terminal panelini çizer (Elytra IDE).
+fn render_terminal(frame: &mut Frame, area: Rect, tp: &terminal_panel::TerminalPanel) {
+    use ratatui::text::{Line, Span, Text};
+    use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
+
+    let durum = if tp.calisiyor { " (calisiyor...)" } else { "" };
+    let blok = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(theme::Theme::USER))
+        .title(format!(" terminal{durum} "));
+
+    // Govde: son satirlar + komut satiri
+    let ic_yukseklik = area.height.saturating_sub(2) as usize;
+    let gosterilecek = ic_yukseklik.saturating_sub(1);
+    let bas = {
+        let toplam = tp.cikti.len();
+        if toplam > gosterilecek {
+            toplam - gosterilecek
+        } else {
+            0
+        }
+    };
+    let kaydirma = (tp.scroll as usize).min(bas);
+    let son = (bas - kaydirma + gosterilecek).min(tp.cikti.len());
+    let alt_bas = son.saturating_sub(gosterilecek);
+
+    let mut satirlar: Vec<Line> = tp.cikti[alt_bas..son]
+        .iter()
+        .map(|l| {
+            let renk = if l.starts_with('$') {
+                theme::Theme::PRIMARY
+            } else if l.starts_with("[!]") {
+                theme::Theme::ERROR
+            } else {
+                theme::Theme::TEXT
+            };
+            Line::from(Span::styled(l.clone(), Style::default().fg(renk)))
+        })
+        .collect();
+
+    // Komut satiri (en altta)
+    satirlar.push(Line::from(vec![
+        Span::styled("$ ", Style::default().fg(theme::Theme::PRIMARY)),
+        Span::styled(tp.input.clone(), Style::default().fg(theme::Theme::TEXT)),
+        Span::styled("_", Style::default().fg(theme::Theme::ACCENT)),
+    ]));
+
+    frame.render_widget(
+        Paragraph::new(Text::from(satirlar))
+            .block(blok)
+            .wrap(Wrap { trim: false }),
+        area,
+    );
 }
