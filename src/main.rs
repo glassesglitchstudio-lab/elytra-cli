@@ -1,8 +1,9 @@
 //! Elytra — Terminal AI Asistani & Otonom Kod Ajani
 //!
-//! Sifirdan Rust ile yazildi. Glitch Code ve Claude Code seviyesinde yetenekleri
-//! minimum bellek (10-15 MB RAM) ve sifir islemci gecikmesiyle sunar.
+//! Sifirdan Rust ile yazildi. Yalniz bulut saglayicilari (yerel model yok),
+//! minimum bellek (10-15 MB RAM) ve milisaniyelik acilis.
 //! Sifir emoji — saf vektor estetik tasarimi ve yuksek performans.
+//! Elytra IDE'nin cekirdegi: dosya agaci, kod goruntuleyici, diff, terminal.
 
 use clap::{Parser, Subcommand};
 
@@ -23,9 +24,10 @@ use util::truncate_chars;
     name = "elytra",
     version,
     about = "Elytra — Iridesan Hiz Motoruyla Guclendirilmis Terminal AI Asistani & Otonom Ajan",
-    long_about = "Elytra, Glitch Code'un tum yeteneklerini (ReAct ajan dongusu, \
-                  dosya okuma/yazma/duzenleme, guvenli terminal komutlari, coklu model saglayicisi destegi) \
-                  sifir bellek yuku ve milisaniyelik yanit hiziyla sunan yerel Rust CLI aracidir."
+    long_about = "Elytra, sifirdan Rust ile yazilmis terminal AI asistani ve otonom ajandir. \
+                  ReAct ajan dongusu, dosya okuma/yazma/duzenleme, guvenli terminal komutlari ve \
+                  coklu bulut saglayici destegi sunar. Elytra IDE'nin cekirdegidir \
+                  (dosya agaci, kod goruntuleyici, diff ve terminal panelleri)."
 )]
 struct Cli {
     #[command(subcommand)]
