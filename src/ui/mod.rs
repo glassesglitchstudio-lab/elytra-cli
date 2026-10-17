@@ -9,6 +9,7 @@
 //! - Canlı Slash (/) Komut Tamamlama Menüsü (Floating Autocomplete Popup)
 
 pub mod code_view;
+pub mod diff_view;
 pub mod file_tree;
 pub mod mascot;
 pub mod theme;
@@ -185,6 +186,8 @@ async fn boot_and_loop(mut terminal: DefaultTerminal, initial_model: Option<&str
     let mut file_tree = file_tree::FileTree::from_cwd();
     // Elytra IDE — kod görüntüleyici paneli (Ctrl+E ile açılır)
     let mut code_view = code_view::CodeView::new();
+    // Elytra IDE — diff görünümü paneli (Ctrl+D ile açılır)
+    let mut diff_view = diff_view::DiffView::new();
 
     let (worker_tx, mut worker_rx) = mpsc::channel::<WorkerEvent>(100);
     let mut is_streaming = false;
@@ -260,6 +263,7 @@ async fn boot_and_loop(mut terminal: DefaultTerminal, initial_model: Option<&str
                 slash_selected_idx,
                 &file_tree,
                 &code_view,
+                &diff_view,
             );
         })?;
 
@@ -472,6 +476,17 @@ async fn boot_and_loop(mut terminal: DefaultTerminal, initial_model: Option<&str
                     KeyCode::Char('e') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                         code_view.toggle();
                     }
+                    KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                        // Seçili dosya varsa onun diff'i, yoksa tüm değişiklikler
+                        let secili = file_tree.secili_dosya();
+                        let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+                        diff_view.yukle(secili.as_deref(), &cwd);
+                    }
+                    // Diff paneli açıkken onu kaydır (en üstte — odak diff'te)
+                    KeyCode::Up if diff_view.open => diff_view.yukari(),
+                    KeyCode::Down if diff_view.open => diff_view.asagi(),
+                    KeyCode::PageUp if diff_view.open => diff_view.sayfa_yukari(20),
+                    KeyCode::PageDown if diff_view.open => diff_view.sayfa_asagi(20),
                     // Kod paneli açıkken ok/Page tuşları onu kaydırır (odak kodda)
                     KeyCode::Up if code_view.open => code_view.yukari(),
                     KeyCode::Down if code_view.open => code_view.asagi(),
@@ -957,6 +972,7 @@ fn draw_main(
     slash_selected_idx: usize,
     file_tree: &file_tree::FileTree,
     code_view: &code_view::CodeView,
+    diff_view: &diff_view::DiffView,
 ) {
     let area = frame.area();
     frame.render_widget(Block::default().style(Style::default().bg(theme::Theme::BG)), area);
@@ -972,7 +988,12 @@ fn draw_main(
     };
     // ── ELYTRA IDE: kod görüntüleyici (Ctrl+E) ──
     // Açıkken içerik alanı [kod | sohbet] olarak bölünür.
-    let area = if code_view.open {
+    let area = if diff_view.open {
+        let yatay = Layout::horizontal([Constraint::Percentage(62), Constraint::Percentage(38)])
+            .split(icerik_alani);
+        render_diff_view(frame, yatay[0], diff_view);
+        yatay[1]
+    } else if code_view.open {
         let yatay = Layout::horizontal([Constraint::Percentage(62), Constraint::Percentage(38)])
             .split(icerik_alani);
         render_code_view(frame, yatay[0], code_view);
@@ -1624,4 +1645,69 @@ fn render_code_view(frame: &mut Frame, area: Rect, cv: &code_view::CodeView) {
         );
     }
     let _ = ic_genislik;
+}
+
+/// Diff görünümü panelini çizer (Elytra IDE).
+fn render_diff_view(frame: &mut Frame, area: Rect, dv: &diff_view::DiffView) {
+    use ratatui::text::{Line, Span, Text};
+    use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
+
+    let (ekle, sil) = dv.ozet();
+    let baslik = if dv.kirpildi {
+        format!(" diff: {} (+{ekle} -{sil}) [kirpildi] ", dv.baslik)
+    } else {
+        format!(" diff: {} (+{ekle} -{sil}) ", dv.baslik)
+    };
+    let blok = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(theme::Theme::SECONDARY))
+        .title(baslik);
+
+    let ic_yukseklik = area.height.saturating_sub(2) as usize;
+    let bas = dv.scroll as usize;
+
+    let satirlar: Vec<Line> = if let Some(ref h) = dv.hata {
+        vec![Line::from(Span::styled(
+            format!("[!] {h}"),
+            Style::default().fg(theme::Theme::MUTED),
+        ))]
+    } else {
+        let son = (bas + ic_yukseklik).min(dv.satirlar.len());
+        dv.satirlar[bas..son]
+            .iter()
+            .map(|s| {
+                let renk = match s.tur {
+                    diff_view::DiffTur::Ekle => theme::Theme::SUCCESS,
+                    diff_view::DiffTur::Sil => theme::Theme::ERROR,
+                    diff_view::DiffTur::Baslik => theme::Theme::ACCENT,
+                    diff_view::DiffTur::Dosya => theme::Theme::MUTED,
+                    diff_view::DiffTur::Baglam => theme::Theme::TEXT,
+                };
+                Line::from(Span::styled(s.metin.clone(), Style::default().fg(renk)))
+            })
+            .collect()
+    };
+
+    frame.render_widget(
+        Paragraph::new(Text::from(satirlar))
+            .block(blok)
+            .wrap(Wrap { trim: false }),
+        area,
+    );
+
+    if area.height >= 3 {
+        let toplam = dv.satirlar.len();
+        let konum = if toplam == 0 { 0 } else { bas + 1 };
+        let alt = Rect {
+            x: area.x,
+            y: area.y + area.height - 1,
+            width: area.width,
+            height: 1,
+        };
+        frame.render_widget(
+            Paragraph::new(format!(" {konum}/{toplam}  ·  Ctrl+D yenile/kapat"))
+                .style(Style::default().fg(theme::Theme::MUTED)),
+            alt,
+        );
+    }
 }
