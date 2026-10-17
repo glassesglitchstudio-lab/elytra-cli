@@ -8,6 +8,7 @@
 //! - Birleşik Model & Sağlayıcı Paleti (Split-pane Modal)
 //! - Canlı Slash (/) Komut Tamamlama Menüsü (Floating Autocomplete Popup)
 
+pub mod code_view;
 pub mod file_tree;
 pub mod mascot;
 pub mod theme;
@@ -182,6 +183,8 @@ async fn boot_and_loop(mut terminal: DefaultTerminal, initial_model: Option<&str
     let mut slash_selected_idx: usize = 0;
     // Elytra IDE — dosya ağacı paneli (Ctrl+B ile açılır)
     let mut file_tree = file_tree::FileTree::from_cwd();
+    // Elytra IDE — kod görüntüleyici paneli (Ctrl+E ile açılır)
+    let mut code_view = code_view::CodeView::new();
 
     let (worker_tx, mut worker_rx) = mpsc::channel::<WorkerEvent>(100);
     let mut is_streaming = false;
@@ -256,6 +259,7 @@ async fn boot_and_loop(mut terminal: DefaultTerminal, initial_model: Option<&str
                 &config,
                 slash_selected_idx,
                 &file_tree,
+                &code_view,
             );
         })?;
 
@@ -460,30 +464,25 @@ async fn boot_and_loop(mut terminal: DefaultTerminal, initial_model: Option<&str
                     KeyCode::Esc => break,
                     KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => break,
 
-                    // ── ELYTRA IDE: dosya ağacı ──
-                    // Ctrl+B paneli açar/kapatır; panel açıkken ok tuşları ağaçta gezer.
+                    // ── ELYTRA IDE: dosya ağacı + kod görüntüleyici ──
+                    // Ctrl+B ağacı, Ctrl+E kodu açar/kapatır.
                     KeyCode::Char('b') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                         file_tree.toggle();
                     }
+                    KeyCode::Char('e') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                        code_view.toggle();
+                    }
+                    // Kod paneli açıkken ok/Page tuşları onu kaydırır (odak kodda)
+                    KeyCode::Up if code_view.open => code_view.yukari(),
+                    KeyCode::Down if code_view.open => code_view.asagi(),
+                    KeyCode::PageUp if code_view.open => code_view.sayfa_yukari(20),
+                    KeyCode::PageDown if code_view.open => code_view.sayfa_asagi(20),
                     KeyCode::Up if file_tree.open => file_tree.yukari(),
                     KeyCode::Down if file_tree.open => file_tree.asagi(),
                     KeyCode::Enter if file_tree.open && input.is_empty() => {
-                        // Klasörde aç/kapa; dosyada içeriği sohbete getir
+                        // Klasörde aç/kapa; dosyada KOD GÖRÜNTÜLEYİCİYE yükle
                         if let Some(yol) = file_tree.secili_dosya() {
-                            match std::fs::read_to_string(&yol) {
-                                Ok(icerik) => {
-                                    let ad = yol.file_name().unwrap_or_default().to_string_lossy().to_string();
-                                    let onizleme: String = icerik.chars().take(4000).collect();
-                                    messages.push(UiMessage::System(format!(
-                                        "[Dosya] {ad} ({} satır)\n{}",
-                                        icerik.lines().count(),
-                                        onizleme
-                                    )));
-                                }
-                                Err(e) => messages.push(UiMessage::System(format!(
-                                    "[!] Dosya okunamadı: {e}"
-                                ))),
-                            }
+                            code_view.yukle(&yol);
                         } else {
                             file_tree.ac_kapa();
                         }
@@ -957,6 +956,7 @@ fn draw_main(
     config: &AppConfig,
     slash_selected_idx: usize,
     file_tree: &file_tree::FileTree,
+    code_view: &code_view::CodeView,
 ) {
     let area = frame.area();
     frame.render_widget(Block::default().style(Style::default().bg(theme::Theme::BG)), area);
@@ -970,7 +970,16 @@ fn draw_main(
     } else {
         area
     };
-    let area = icerik_alani;
+    // ── ELYTRA IDE: kod görüntüleyici (Ctrl+E) ──
+    // Açıkken içerik alanı [kod | sohbet] olarak bölünür.
+    let area = if code_view.open {
+        let yatay = Layout::horizontal([Constraint::Percentage(62), Constraint::Percentage(38)])
+            .split(icerik_alani);
+        render_code_view(frame, yatay[0], code_view);
+        yatay[1]
+    } else {
+        icerik_alani
+    };
 
     // Dikey Yerleşim:
     // 0. Neon Accent Çizgisi (1)
@@ -1550,4 +1559,69 @@ fn render_command_menu_modal(frame: &mut Frame, current_idx: usize) {
     let inner = block.inner(area);
     frame.render_widget(block, area);
     frame.render_widget(Paragraph::new(lines), inner);
+}
+
+/// Kod görüntüleyici panelini çizer (Elytra IDE).
+fn render_code_view(frame: &mut Frame, area: Rect, cv: &code_view::CodeView) {
+    use ratatui::widgets::{Block, Borders, Paragraph};
+
+    let baslik = if cv.kirpildi {
+        format!(" {} (kirpildi) ", cv.dosya_adi())
+    } else {
+        format!(" {} ", cv.dosya_adi())
+    };
+    let blok = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(theme::Theme::PRIMARY))
+        .title(baslik);
+
+    let ic_yukseklik = area.height.saturating_sub(2) as usize;
+    let ic_genislik = area.width.saturating_sub(2) as usize;
+    let bas = cv.scroll as usize;
+
+    let govde = if let Some(ref h) = cv.hata {
+        format!("[!] {h}")
+    } else if cv.lines.is_empty() {
+        "(dosya ağacından bir dosya seç — Enter)".to_string()
+    } else {
+        let num_w = cv.numara_genisligi();
+        let son = (bas + ic_yukseklik).min(cv.lines.len());
+        cv.lines[bas..son]
+            .iter()
+            .enumerate()
+            .map(|(i, l)| {
+                let no = bas + i + 1;
+                format!("{no:>num_w$} | {l}")
+            })
+            .collect::<Vec<_>>()
+            .join("
+")
+    };
+
+    frame.render_widget(
+        Paragraph::new(govde)
+            .block(blok)
+            .style(Style::default().fg(theme::Theme::TEXT))
+            .scroll((0, 0))
+            .wrap(ratatui::widgets::Wrap { trim: false }),
+        area,
+    );
+
+    // Alt bilgi: konum + kısayol
+    if area.height >= 3 {
+        let toplam = cv.lines.len();
+        let konum = if toplam == 0 { 0 } else { bas + 1 };
+        let alt = Rect {
+            x: area.x,
+            y: area.y + area.height - 1,
+            width: area.width,
+            height: 1,
+        };
+        let ipucu = format!(" {konum}/{toplam}  ·  ↑↓ kaydır  ·  Ctrl+E kapat");
+        frame.render_widget(
+            Paragraph::new(ipucu).style(Style::default().fg(theme::Theme::MUTED)),
+            alt,
+        );
+    }
+    let _ = ic_genislik;
 }
